@@ -49,6 +49,7 @@ uint life(ivec2 UV, uint forcing) {
     imageStore(computeTex[0],UV,uvec4(0));
     return 0;
   } else {
+    imageStore(computeTex[0],UV,uvec4(current));
     return current;
   }
 }
@@ -90,7 +91,7 @@ void main(void)
 {
   float fft = texture(texFFTSmoothed, 0.05).x;
   vec2 offset = vec2(texture(texFFTIntegrated,0.3).x,texture(texFFTIntegrated,0.15).x);
-  float noise = step(0.15,9.0*texture(texNoise, 0.5*gl_FragCoord.xy / v2Resolution + offset).x*fft + 0.3*texture(texNoise, 5.0*gl_FragCoord.xy / v2Resolution).x);
+  float noise = step(0.10,9.0*texture(texNoise, gl_FragCoord.xy / v2Resolution + offset).x*fft + 0.1*texture(texNoise, 5.0*gl_FragCoord.xy / v2Resolution).x);
   
   vec2 uv = 2.0*gl_FragCoord.xy/v2Resolution.y - vec2(v2Resolution.x/v2Resolution.y,1.0);
   
