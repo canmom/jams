@@ -23,7 +23,7 @@ layout(r32ui) uniform coherent uimage2D[3] computeTexBack;
 
 layout(location = 0) out vec4 out_color; // out_color must be written in order to see anything
 
-uint life(ivec2 UV, uint forcing) {
+uint life(ivec2 UV, int forcing) {
   int left = (UV.x - 1) % int(v2Resolution.x);
   int right = (UV.x + 1) % int(v2Resolution.x);
   int up = (UV.y + 1) % int(v2Resolution.y);
@@ -41,6 +41,9 @@ uint life(ivec2 UV, uint forcing) {
   
   if (forcing > 0) {
     imageStore(computeTex[0],UV,uvec4(1));
+    return current;
+  } else if (forcing < 0) {
+    imageStore(computeTex[0],UV,uvec4(0));
     return current;
   } else if (living_neighbours == 3) {
     imageStore(computeTex[0],UV,uvec4(1));
@@ -72,7 +75,7 @@ float sample_ground_plane(vec3 camera_pos, vec3 camera_dir, vec2 uv, float fov_f
     if (life_cell == 1) {
       return life_cell;
     } else {
-      vec2 step_v = -0.5*ray.xy*tex_scale;
+      vec2 step_v = -0.3*ray.xy*tex_scale;
       
       //now we raymarch into the Game of Life plane
       for(int i = 0; i < MAX_STEPS; i++) {
@@ -88,17 +91,24 @@ float sample_ground_plane(vec3 camera_pos, vec3 camera_dir, vec2 uv, float fov_f
 }
 
 void main(void)
-{
+{ 
   float fft = texture(texFFTSmoothed, 0.05).x;
   vec2 offset = vec2(texture(texFFTIntegrated,0.3).x,texture(texFFTIntegrated,0.15).x);
-  float noise = step(0.10,9.0*texture(texNoise, gl_FragCoord.xy / v2Resolution + offset).x*fft + 0.1*texture(texNoise, 5.0*gl_FragCoord.xy / v2Resolution).x);
+  float noise = 120.0*texture(texNoise, gl_FragCoord.xy / v2Resolution + offset).x*fft * texture(texNoise, 20.0*gl_FragCoord.xy / v2Resolution).x;
+  
+  int noise_subtract = int(step(noise, 0.04));
+  int noise_add = int(step(0.35, noise));
+  
+  int noise_forcing = noise_add - noise_subtract;
   
   vec2 uv = 2.0*gl_FragCoord.xy/v2Resolution.y - vec2(v2Resolution.x/v2Resolution.y,1.0);
   
-  float do_life = texture(texFFT, 0.0).x;
+  //once per second, roughly
+  bool do_life = mod(fGlobalTime, 0.2) < fFrameTime;
+
   uint l;
-  if (do_life >= 0.02) {
-    l = life(ivec2(gl_FragCoord.xy), uint(noise));
+  if (do_life) {
+    l = life(ivec2(gl_FragCoord.xy), noise_forcing);
   } else {
     l = imageLoad(computeTexBack[0],ivec2(gl_FragCoord.xy)).x;
     imageStore(computeTex[0],ivec2(gl_FragCoord.xy),ivec4(l));
@@ -108,7 +118,8 @@ void main(void)
   float camera_rotation_time = 0.05*fGlobalTime;
   vec2 camera_rotation = vec2(cos(camera_rotation_time),sin(camera_rotation_time));
   
-  float ground_sample = sample_ground_plane(vec3(25.0 * camera_rotation, 40.0), normalize(vec3(-camera_rotation, -0.08)), uv, 0.1, 0.5);
+  float ground_sample = sample_ground_plane(vec3(25.0 * camera_rotation, 40.0), normalize(vec3(-camera_rotation, -0.2)), uv, 0.2, 0.5);
   
-	out_color = vec4(vec3(0.1,0.1,0.1)+ground_sample*vec3(0.6,0.2,0.6),1.0);
+  out_color = vec4(vec3(0.1,0.1,0.1)+ground_sample*vec3(0.6,0.2,0.6),1.0);
+  //out_color = vec4(noise_add, noise_subtract, 0, 1.0);
 }
