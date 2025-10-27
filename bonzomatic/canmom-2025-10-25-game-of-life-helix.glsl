@@ -107,6 +107,13 @@
               e.yxy*sdf_torus( pos + e.yxy*eps, radii ) + 
               e.xxx*sdf_torus( pos + e.xxx*eps, radii ) );
   }
+  
+  vec2 torus_uv(vec3 hit_pos) {
+    float u = 0.5+0.5*atan(hit_pos.x, hit_pos.y)/PI;
+    float o = length(hit_pos.xy) - 4.0;
+    float v = 0.5+0.5*atan(o, mod(hit_pos.z+atan(hit_pos.y, hit_pos.x),2*PI)-PI)/PI;
+    return vec2(u,v);
+  }
 
   vec4 sample_torus(vec3 camera_pos, vec3 camera_dir, vec2 uv, float fov_factor, float torus_radius) {
     vec3 camera_x = normalize(cross(camera_dir,vec3(0,0,1)));
@@ -123,13 +130,20 @@
       for (int i = 0; i < 40; ++i) {
         float d = sdf_torus(hit_pos, radii);
         if (d < 0.1) {
-          float u = 0.5+0.5*atan(hit_pos.x, hit_pos.y)/PI;
-          float o = length(hit_pos.xy) - 4.0;
-          float v = 0.5+0.5*atan(o, mod(hit_pos.z+atan(hit_pos.y, hit_pos.x),2*PI)-PI)/PI;
           //now the cool part
-          ivec2 life_uv = ivec2(vec2(u,v)*v2Resolution);
+          ivec2 life_uv = ivec2(torus_uv(hit_pos)*v2Resolution);
           vec3 normal = calcNormal(hit_pos, radii);
-          return vec4(float(imageLoad(computeTexBack[0],life_uv).r), normal);
+          if (imageLoad(computeTexBack[0],life_uv).r == 1) {
+            return vec4(1.0,normal);
+          } else {
+            for (int j = 0; j < 10; ++j) {
+              life_uv = ivec2(torus_uv(hit_pos + ray * j * 0.01)*v2Resolution);
+              if (imageLoad(computeTexBack[0],life_uv).r == 1) {
+                return vec4(0.1,normal);
+              }
+            }
+            return vec4(0.0,normal);
+          }
           //return vec4(v,normal);
           
         } else {
@@ -172,8 +186,8 @@
 
   void main(void)
   { 
-    float fft = texture(texFFTSmoothed, 0.05).x;
-    float fftTime = texture(texFFTIntegrated, 0.1).x;
+    float fft = 1.0*texture(texFFT, 0.1).x;
+    float fftTime = 0.4*texture(texFFTIntegrated, 0.1).x;
     vec2 offset = vec2(texture(texFFTIntegrated,0.3).x,texture(texFFTIntegrated,0.15).x);
     float noise = 120.0*texture(texNoise, gl_FragCoord.xy / v2Resolution + offset).x*fft * texture(texNoise, 20.0*gl_FragCoord.xy / v2Resolution).x;
     
@@ -199,12 +213,12 @@
       UV.x = UV.x % 95;
       
       UV.x = abs(50+ int(spect*50) - UV.x) - 10;
-      UV.y = abs(UV.y - int(spect*1000) - 5*res.y/8);
+      UV.y = abs(UV.y - int(spect*100) - 5*res.y/8);
       //UV.y = UV.y - 100;
       
       
       if (lock == 0) {
-        forcing = is_glider(UV) * int(spect*fftBin>0.001);
+        forcing = is_glider(UV) * int(spect*fftBin>0.003);
       }
       
       l = life(ivec2(gl_FragCoord.xy), forcing);
@@ -220,11 +234,11 @@
     float camera_rotation_time = 0.05*fGlobalTime;
     vec2 camera_rotation = vec2(cos(camera_rotation_time),sin(camera_rotation_time));
     
-    float cost = cos(fftTime);
-    float sint = sin(fftTime);
+    float cost = cos(2.0*fftTime);
+    float sint = sin(2.0*fftTime);
     
     //float ground_sample = sample_ground_plane(vec3(25.0 * camera_rotation, 40.0), normalize(vec3(-camera_rotation, -0.2)), uv, 0.2, 0.5);
-    vec4 torus_sample = sample_torus(vec3(-30.0*cost, -30.0*sint, 20.0*cos(0.5*fftTime)+fftTime), normalize(vec3(1.2*cost, 1.2*sint, -0.8*cos(0.5*fftTime))), uv, 0.2, fft);
+    vec4 torus_sample = sample_torus(vec3(-15.0*cost, -30.0*sint, 20.0+20.0*cos(0.5*fftTime)+10.0*fftTime), normalize(vec3(0.6*1.2*cost, 1.2*sint, -0.8-0.8*cos(0.5*fftTime))), uv, 0.2, 4.0*fft);
     
     vec3 light_direction = normalize(vec3(-0.2, -0.6, 0.5));
     
@@ -235,9 +249,15 @@
     float bg = 1.0-torus;
     
     
-    out_color = vec4(spect*fftBin>0.001);
+    out_color = vec4(fftBin*spect*100);
+    vec4 previous_frame;
+    for(int i = -1; i<=1; i++) {
+      for(int j = -1; j<=1; j++) {
+        previous_frame += texture(texPreviousFrame, (gl_FragCoord.xy + vec2(i,j))/v2Resolution);
+      }
+    }   
     //out_color = vec4(test_norm,test2_norm,test3_norm, 1.0);
-    out_color = vec4(atan((vec3(0.01,0.01,0.01)+vec3(0.03,0.00,0.03)*lighting)*torus +0.1*bg*l+5.0*torus_sample.x*vec3(0.6,0.2,0.6)*lighting),1.0);
+    out_color = vec4(atan(0.1*bg*l+5.0*torus_sample.x*vec3(0.7,0.2,0.6)*1*lighting+vec3(0.08,0.07,0.1)*previous_frame.xyz),1.0);
     //out_color = vec4(is_glider((ivec2(gl_FragCoord)-ivec2(800,800))));
     //out_color = vec4(noise_add, noise_subtract, 0, 1.0);
   }
