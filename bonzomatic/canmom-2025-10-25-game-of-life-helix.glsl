@@ -97,7 +97,7 @@
     return length(q)-radii.y;
   }
 
-  vec3 calcNormal( in vec3 pos, vec2 radii )
+  vec3 calc_normal(vec3 pos, vec2 radii )
   {
       vec2 e = vec2(1.0,-1.0)*0.5773;
       const float eps = 0.0005;
@@ -108,14 +108,25 @@
               e.xxx*sdf_torus( pos + e.xxx*eps, radii ) );
   }
   
+  vec2 radii (float torus_radius) {
+    return vec2(4.0, 1.0+8.0*torus_radius);
+  }
+  
   vec2 torus_uv(vec3 hit_pos) {
     float u = 0.5+0.5*atan(hit_pos.x, hit_pos.y)/PI;
     float o = length(hit_pos.xy) - 4.0;
     float v = 0.5+0.5*atan(o, mod(hit_pos.z+atan(hit_pos.y, hit_pos.x),2*PI)-PI)/PI;
     return vec2(u,v);
   }
+  
+  struct TorusHit {
+    vec3 position;
+    vec3 normal;
+    float life;
+    float hit;
+  };
 
-  vec4 sample_torus(vec3 camera_pos, vec3 camera_dir, vec2 uv, float fov_factor, float torus_radius) {
+  TorusHit sample_torus(vec3 camera_pos, vec3 camera_dir, vec2 uv, float fov_factor, float torus_radius) {
     vec3 camera_x = normalize(cross(camera_dir,vec3(0,0,1)));
     vec3 camera_y = normalize(cross(camera_x, camera_dir));
     vec3 ray = normalize((uv.x * camera_x + uv.y * camera_y) * fov_factor + camera_dir);
@@ -124,25 +135,25 @@
     float b = 2.0*dot(camera_pos, ray);
     float c = dot(camera_pos, camera_pos - 8.0);
     float discriminant = b*b - 4*c;
-    vec2 radii = vec2(4.0, 1.0+8.0*torus_radius);
+    vec2 radii = radii(torus_radius);
     vec3 hit_pos = camera_pos;
       
       for (int i = 0; i < 40; ++i) {
         float d = sdf_torus(hit_pos, radii);
         if (d < 0.1) {
           //now the cool part
+          vec3 normal = calc_normal(hit_pos, radii);
           ivec2 life_uv = ivec2(torus_uv(hit_pos)*v2Resolution);
-          vec3 normal = calcNormal(hit_pos, radii);
           if (imageLoad(computeTexBack[0],life_uv).r == 1) {
-            return vec4(1.0,normal);
+            return TorusHit(hit_pos, normal, 1.0, 1.0);
           } else {
-            for (int j = 0; j < 10; ++j) {
+            for (int j = 0; j < 15; ++j) {
               life_uv = ivec2(torus_uv(hit_pos + ray * j * 0.01)*v2Resolution);
               if (imageLoad(computeTexBack[0],life_uv).r == 1) {
-                return vec4(0.1,normal);
+                return TorusHit(hit_pos, normal, 0.1, 1.0);
               }
             }
-            return vec4(0.0,normal);
+            return TorusHit(hit_pos, normal, 0.0, 1.0);
           }
           //return vec4(v,normal);
           
@@ -150,7 +161,7 @@
           hit_pos += d * ray;
         }
       }
-      return vec4(0.0);
+      return TorusHit(vec3(0.0), vec3(0.0), 0.0, 0.0);
   }
 
   const int LOCK_INTERVAL = 25;
@@ -183,6 +194,16 @@
       return 0;
     }
   }
+  
+  vec3 hue_shift(vec3 color, float dhue) {
+  float s = sin(dhue);
+  float c = cos(dhue);
+  return (color * c) + (color * s) * mat3(
+    vec3(0.167444, 0.329213, -0.496657),
+    vec3(-0.327948, 0.035669, 0.292279),
+    vec3(1.250268, -1.047561, -0.202707)
+  ) + dot(vec3(0.299, 0.587, 0.114), color) * (1.0 - c);
+}
 
   void main(void)
   { 
@@ -213,12 +234,12 @@
       UV.x = UV.x % 95;
       
       UV.x = abs(50+ int(spect*50) - UV.x) - 10;
-      UV.y = abs(UV.y - int(spect*100) - 5*res.y/8);
+      UV.y = abs(UV.y - int(spect*300) - 5*res.y/8);
       //UV.y = UV.y - 100;
       
       
       if (lock == 0) {
-        forcing = is_glider(UV) * int(spect*fftBin>0.003);
+        forcing = is_glider(UV) * int(spect*fftBin>0.0015);
       }
       
       l = life(ivec2(gl_FragCoord.xy), forcing);
@@ -237,14 +258,20 @@
     float cost = cos(2.0*fftTime);
     float sint = sin(2.0*fftTime);
     
+    float torus_radius = 4.0*fft;
+    
     //float ground_sample = sample_ground_plane(vec3(25.0 * camera_rotation, 40.0), normalize(vec3(-camera_rotation, -0.2)), uv, 0.2, 0.5);
-    vec4 torus_sample = sample_torus(vec3(-15.0*cost, -30.0*sint, 20.0+20.0*cos(0.5*fftTime)+10.0*fftTime), normalize(vec3(0.6*1.2*cost, 1.2*sint, -0.8-0.8*cos(0.5*fftTime))), uv, 0.2, 4.0*fft);
+    TorusHit torus_sample = sample_torus(vec3(-15.0*cost, -30.0*sint, 20.0+20.0*cos(0.5*fftTime)+10.0*fftTime), normalize(vec3(0.6*1.2*cost, 1.2*sint, -0.8-0.8*cos(0.5*fftTime))), uv, 0.2, torus_radius);
     
     vec3 light_direction = normalize(vec3(-0.2, -0.6, 0.5));
     
-    float lighting = clamp(dot(torus_sample.yzw, light_direction), 0.0, 1.0) + 0.02;
+    vec3 hit_pos = torus_sample.position;
+    vec3 col = hue_shift(vec3(0.7,0.2,0.6),hit_pos.z/(2*PI));
+    vec3 normal = torus_sample.hit * torus_sample.normal;
     
-    float torus = dot(torus_sample.yzw,torus_sample.yzw);
+    float lighting = clamp(dot(normal, light_direction), 0.0, 1.0) + 0.02;
+    
+    float torus = torus_sample.hit;
     
     float bg = 1.0-torus;
     
@@ -256,8 +283,7 @@
         previous_frame += texture(texPreviousFrame, (gl_FragCoord.xy + vec2(i,j))/v2Resolution);
       }
     }   
-    //out_color = vec4(test_norm,test2_norm,test3_norm, 1.0);
-    out_color = vec4(atan(0.1*bg*l+5.0*torus_sample.x*vec3(0.7,0.2,0.6)*1*lighting+vec3(0.08,0.07,0.1)*previous_frame.xyz),1.0);
+    
+    out_color = vec4(atan(0.1*bg*l+torus*vec3(0.01,0.01,0.02)*lighting+5.0*torus_sample.life*col*1*lighting+vec3(0.08,0.07,0.1)*previous_frame.xyz),1.0);
     //out_color = vec4(is_glider((ivec2(gl_FragCoord)-ivec2(800,800))));
-    //out_color = vec4(noise_add, noise_subtract, 0, 1.0);
   }
