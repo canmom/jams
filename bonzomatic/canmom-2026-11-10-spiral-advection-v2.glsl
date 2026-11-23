@@ -177,14 +177,19 @@ void main(void) {
   const float PI = radians(180.0);
   const float TAU = 2 * PI;
   float theta = atan(uv.y, uv.x) / PI + 2.0;
-  const float NOISE_SCALE = 0.008;
   const float DISTORT_SCALE = 0.005;
-  vec4 n0 = noised(vec3(gl_FragCoord.xy * DISTORT_SCALE, texture(texFFTIntegrated, 0.2).r));
-  vec4 n1 = noised(vec3(gl_FragCoord.xy * DISTORT_SCALE + vec2(100.0), texture(texFFTIntegrated, 0.3).r));
-  vec4 n2 = noised(vec3(gl_FragCoord.xy * NOISE_SCALE + 0.0 * vec2(n0.r, n1.r), texture(texFFTIntegrated, 0.1).r));
+  const float NOISE_SCALE_0 = 0.003;
+  const float NOISE_SCALE_1 = 0.012;
+  const float NOISE_SCALE_2 = 0.031;
+  const float WEIGHT_0 = 8.0;
+  const float WEIGHT_1 = 3.0;
+  const float WEIGHT_2 = 1.2;
+  const float TOTAL_WEIGHT = WEIGHT_0 + WEIGHT_1 + WEIGHT_2;
+  vec4 n0 = noised(vec3(gl_FragCoord.xy * NOISE_SCALE_0, 5.0 * texture(texFFTIntegrated, 0.1).r));
+  vec4 n1 = noised(vec3(gl_FragCoord.xy * NOISE_SCALE_1 + vec2(10.0), 5.0 * texture(texFFTIntegrated, 0.2).r));
+  vec4 n2 = noised(vec3(gl_FragCoord.xy * NOISE_SCALE_2 + vec2(100.0), 5.0 * texture(texFFTIntegrated, 0.3).r));
 
-  //vec2 n = noisefield(gl_FragCoord.xy * (0.05 + 0.02*sin(texture(texFFTIntegrated,0.1).r))) + 2.0*noisefield(gl_FragCoord.xy * 0.1 + vec2(texture(texFFTIntegrated,0.2).r));
-  vec2 n = vec2(n2.z, -n2.y);
+  vec2 n = (WEIGHT_0 * n0.zy + WEIGHT_1 * n1.zy + WEIGHT_2 * n2.zy) * vec2(1.0, -1.0) / TOTAL_WEIGHT;
 
   float r = length(uv);
   ivec2 UV = ivec2(gl_FragCoord.xy);
@@ -197,7 +202,7 @@ void main(void) {
 
   write(UV, 0.8 * vec3(write_colour * min(fft, 1.0)));
   float BLUR_WEIGHT = 0.4;
-  advect(UV, 0.1 * n / NOISE_SCALE, 1.0 - BLUR_WEIGHT);
+  advect(UV, 30.0 * n, 1.0 - BLUR_WEIGHT);
   blur(UV, BLUR_WEIGHT);
 
   //out_color = vec4(vec3(fft),1.0);
